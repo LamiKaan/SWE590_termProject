@@ -1,0 +1,203 @@
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: zulip-1
+  labels:
+    version: 1.8.1-0
+    app: zulip
+spec:
+  replicas: 1
+  selector:
+    version: 1.8.1-0
+    app: zulip
+  template:
+    metadata:
+      labels:
+        version: 1.8.1-0
+        app: zulip
+    spec:
+      containers:
+        - name: redis
+          image: redis:alpine
+          command:
+            - "sh"
+            - "-euc"
+            - |
+              echo "requirepass '$$REDIS_PASSWORD'" > /etc/redis.conf
+              exec redis-server /etc/redis.conf
+          env:
+            - name: REDIS_PASSWORD
+              value: "REPLACE_WITH_SECURE_REDIS_PASSWORD"
+          resources:
+            requests:
+              cpu: 250m
+              memory: 250M
+              ephemeral-storage: "100K"
+            limits:
+              cpu: 250m
+              memory: 250M
+              ephemeral-storage: "100K"
+          volumeMounts:
+            - name: redis-persistent-storage
+              mountPath: /var/lib/redis
+        - name: memcached
+          image: memcached:alpine
+          command:
+            - "sh"
+            - "-euc"
+            - |
+              echo 'mech_list: plain' > "$$SASL_CONF_PATH"
+              echo "zulip@$$HOSTNAME:$$MEMCACHED_PASSWORD" > "$$MEMCACHED_SASL_PWDB"
+              echo "zulip@localhost:$$MEMCACHED_PASSWORD" >> "$$MEMCACHED_SASL_PWDB"
+              exec memcached -S
+          env:
+            - name: SASL_CONF_PATH
+              value: "/home/memcache/memcached.conf"
+            - name: MEMCACHED_SASL_PWDB
+              value: "/home/memcache/memcached-sasl-db"
+            - name: MEMCACHED_PASSWORD
+              value: "REPLACE_WITH_SECURE_MEMCACHED_PASSWORD"
+          resources:
+            requests:
+              cpu: 250m
+              memory: 250M
+              ephemeral-storage: "100K"
+            limits:
+              cpu: 250m
+              memory: 250M
+              ephemeral-storage: "100K"
+        - name: rabbitmq
+          image: rabbitmq:3.7.7
+          resources:
+            requests:
+              cpu: 250m
+              memory: 250M
+              ephemeral-storage: "100K"
+            limits:
+              cpu: 250m
+              memory: 250M
+              ephemeral-storage: "100K"
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              value: "zulip"
+            - name: RABBITMQ_DEFAULT_PASS
+              value: "REPLACE_WITH_SECURE_RABBITMQ_PASSWORD"
+          volumeMounts:
+            - name: rabbitmq-persistent-storage
+              mountPath: /var/lib/rabbitmq
+        - name: postgresql
+          image: zulip/zulip-postgresql:14
+          resources:
+            requests:
+              cpu: 250m
+              memory: 250M
+              ephemeral-storage: "100K"
+            limits:
+              cpu: 250m
+              memory: 250M
+              ephemeral-storage: "100K"
+          env:
+            - name: POSTGRES_DB
+              value: zulip
+            - name: POSTGRES_USER
+              value: zulip
+            - name: POSTGRES_PASSWORD
+              value: REPLACE_WITH_SECURE_POSTGRES_PASSWORD
+          volumeMounts:
+            - name: postgresql-persistent-storage
+              mountPath: /var/lib/postgresql
+        - name: zulip
+          image: zulip/docker-zulip:6.2-0
+          resources:
+            requests:
+              cpu: 600m
+              memory: 6G
+              ephemeral-storage: "100K"
+            limits:
+              cpu: 600m
+              memory: 6G
+              ephemeral-storage: "100K"
+          env:
+            # Please take a look at the environment variables in docker-compose.yml for all required env variables!
+            - name: SETTING_ALLOWED_HOSTS
+              value: '["*"]'
+            - name: DB_HOST
+              value: "localhost"
+            - name: MEMCACHED_HOST
+              value: "localhost"
+            - name: REDIS_HOST
+              value: "localhost"
+            - name: RABBITMQ_HOST
+              value: "localhost"
+            - name: ZULIP_AUTH_BACKENDS
+              value: "EmailAuthBackend"
+            - name: SECRETS_email_password
+              value: "c3b36ce81e7ea7"
+            - name: SETTING_FAKE_EMAIL_DOMAIN
+              value: "example.com"
+            - name: SETTING_EXTERNAL_HOST
+              value: "swe590.com"
+            - name: SETTING_ZULIP_ADMINISTRATOR
+              value: "admin@example.com"
+            - name: SETTING_EMAIL_HOST
+              value: "sandbox.smtp.mailtrap.io" # E.g. 'smtp.example.com'
+            - name: SETTING_EMAIL_HOST_USER
+              value: "3e1bf9b3da58f3"
+            - name: SETTING_EMAIL_HOST_PASSWORD
+              value: "c3b36ce81e7ea7"
+            - name: SETTING_EMAIL_PORT
+              value: "2525"
+            - name: ZULIP_USER_EMAIL
+              value: "example@example.com"
+            - name: ZULIP_USER_DOMAIN
+              value: "example.com"
+            - name: ZULIP_USER_PASS
+              value: "123456789"
+            - name: SECRETS_secret_key
+              value: "REPLCAE_WITH_SECURE_SECRET_KEY"
+            # These should match the passwords configured above
+            - name: SECRETS_postgres_password
+              value: "REPLACE_WITH_SECURE_POSTGRES_PASSWORD"
+            - name: SECRETS_memcached_password
+              value: "REPLACE_WITH_SECURE_MEMCACHED_PASSWORD"
+            - name: SECRETS_rabbitmq_password
+              value: "REPLACE_WITH_SECURE_RABBITMQ_PASSWORD"
+            - name: SECRETS_redis_password
+              value: "REPLACE_WITH_SECURE_REDIS_PASSWORD"
+            - name: SSL_CERTIFICATE_GENERATION
+              value: "certbot"
+            - name: DISABLE_HTTPS
+              value: "False"
+              # Uncomment this when configuring the mobile push notifications service
+          # - name: SETTING_PUSH_NOTIFICATION_BOUNCER_URL
+          #   value: 'https://push.zulipchat.com'
+          ports:
+            - containerPort: 80
+              name: http
+              protocol: TCP
+            - containerPort: 443
+              name: https
+              protocol: TCP
+          volumeMounts:
+            - name: zulip-persistent-storage
+              mountPath: /data
+      #        livenessProbe:
+      #          httpGet:
+      #            path: /login
+      #            port: 443
+      #            scheme: HTTP
+      #          initialDelaySeconds: 120
+      #          timeoutSeconds: 12
+      volumes:
+        - name: redis-persistent-storage
+          hostPath:
+            path: /opt/docker/zulip/redis
+        - name: rabbitmq-persistent-storage
+          hostPath:
+            path: /opt/docker/zulip/rabbitmq
+        - name: postgresql-persistent-storage
+          hostPath:
+            path: /opt/docker/zulip/postgresql
+        - name: zulip-persistent-storage
+          hostPath:
+            path: /opt/docker/zulip/zulip

@@ -1,0 +1,117 @@
+version: "2"
+services:
+  database:
+    image: "zulip/zulip-postgresql:14"
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "zulip"
+      POSTGRES_USER: "zulip"
+      # Note that you need to do a manual `ALTER ROLE` query if you
+      # change this on a system after booting the postgres container
+      # the first time on a host.  Instructions are available in README.md.
+      POSTGRES_PASSWORD: "zulip_postgres" #-----lkk-----
+    volumes:
+      - "postgresql-14:/var/lib/postgresql/data:rw"
+  memcached:
+    image: "memcached:alpine"
+    restart: unless-stopped
+    command:
+      - "sh"
+      - "-euc"
+      - |
+        echo 'mech_list: plain' > "$$SASL_CONF_PATH"
+        echo "zulip@$$HOSTNAME:$$MEMCACHED_PASSWORD" > "$$MEMCACHED_SASL_PWDB"
+        echo "zulip@localhost:$$MEMCACHED_PASSWORD" >> "$$MEMCACHED_SASL_PWDB"
+        exec memcached -S
+    environment:
+      SASL_CONF_PATH: "/home/memcache/memcached.conf"
+      MEMCACHED_SASL_PWDB: "/home/memcache/memcached-sasl-db"
+      MEMCACHED_PASSWORD: "zulip_memcached" #-----lkk-----
+  rabbitmq:
+    image: "rabbitmq:3.7.7"
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: "zulip"
+      RABBITMQ_DEFAULT_PASS: "zulip_rabbitmq" #-----lkk-----
+    volumes:
+      - "rabbitmq:/var/lib/rabbitmq:rw"
+  redis:
+    image: "redis:alpine"
+    restart: unless-stopped
+    command:
+      - "sh"
+      - "-euc"
+      - |
+        echo "requirepass '$$REDIS_PASSWORD'" > /etc/redis.conf
+        exec redis-server /etc/redis.conf
+    environment:
+      REDIS_PASSWORD: "zulip_redis" #-----lkk-----
+    volumes:
+      - "redis:/data:rw"
+  zulip:
+    image: "zulip/docker-zulip:6.1-0"
+    restart: unless-stopped
+    build:
+      context: .
+      args:
+        # Change these if you want to build zulip from a different repo/branch
+        ZULIP_GIT_URL: https://github.com/zulip/zulip.git
+        ZULIP_GIT_REF: "6.1"
+        # Set this up if you plan to use your own CA certificate bundle for building
+        # CUSTOM_CA_CERTIFICATES:
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DB_HOST: "database"
+      DB_HOST_PORT: "5432"
+      DB_USER: "zulip"
+      SSL_CERTIFICATE_GENERATION: "self-signed"
+      SETTING_MEMCACHED_LOCATION: "memcached:11211"
+      SETTING_RABBITMQ_HOST: "rabbitmq"
+      SETTING_REDIS_HOST: "redis"
+      SECRETS_email_password: "zulip-email" #-----lkk-----
+      # These should match RABBITMQ_DEFAULT_PASS, POSTGRES_PASSWORD,
+      # MEMCACHED_PASSWORD, and REDIS_PASSWORD above.
+      SECRETS_rabbitmq_password: "zulip_rabbitmq" #-----lkk-----
+      SECRETS_postgres_password: "zulip_postgres" #-----lkk-----
+      SECRETS_memcached_password: "zulip_memcached" #-----lkk-----
+      SECRETS_redis_password: "zulip_redis" #-----lkk-----
+      SECRETS_secret_key: "LKK_SWE590_zulip_secretkey_2023" #-----lkk-----
+      SETTING_EXTERNAL_HOST: "localhost.localdomain"
+      SETTING_ZULIP_ADMINISTRATOR: "lami.kosesoy@boun.edu.tr" #-----lkk-----
+      SETTING_EMAIL_HOST: "smtp.boun.edu.tr" #-----lkk-----
+      SETTING_EMAIL_HOST_USER: "lami.kosesoy" #-----lkk----- Eger calismazsa sonuna @boun.edu.tr eklenip denenebilir
+      SETTING_EMAIL_PORT: "587"
+      # It seems that the email server needs to use ssl or tls and can't be used without it
+      SETTING_EMAIL_USE_SSL: "True" #-----lkk-----
+      SETTING_EMAIL_USE_TLS: "True"
+      ZULIP_AUTH_BACKENDS: "EmailAuthBackend,GitHubAuthBackend" #-----lkk-----
+      # -----lkk-----NEW_LINES
+      QUEUE_WORKERS_MULTIPROCESS: "True"
+      # SSL_CERTIFICATE_GENERATION: "certbot"
+      DISABLE_HTTPS: "True"
+      #LOADBALANCER_IPS: "" -- Sonra lazim olabilir
+      #-----!!!-----
+      # Su an bu yaml dosyasini configure ederek aslinda containerlarin calistigi durumda
+      # Zulip Server containeri icindeki "settings.py" dosyasinin parametrelerini belirliyoruz.
+      # Eger asagidaki configurationlari aktive edersek, containerin icindeki settings.py dosyasini
+      # manuel degistirerek bunlari ayarlamayi ve container kapatilirken bu ayarlarin kaydedilmesini
+      # istemis oluyoruz. Duruma gore ise yarayabilir.
+      #MANUAL_CONFIGURATION: "True"
+      #LINK_SETTINGS_TO_DATA: "True"
+      #-----!!!-----
+      # -----lkk-----NEW_LINES
+      # Uncomment this when configuring the mobile push notifications service
+      # SETTING_PUSH_NOTIFICATION_BOUNCER_URL: 'https://push.zulipchat.com'
+    volumes:
+      - "zulip:/data:rw"
+    ulimits:
+      nofile:
+        soft: 1000000
+        hard: 1048576
+volumes:
+  zulip:
+  postgresql-14:
+  rabbitmq:
+  redis:
